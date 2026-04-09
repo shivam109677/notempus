@@ -1,0 +1,15 @@
+{
+	email {$LETSENCRYPT_EMAIL}
+}
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	@signaling path /ws*
+	reverse_proxy @signaling signaling-service:4003
+
+	@gateway path /v1/* /health /v1/apis
+	reverse_proxy @gateway api-gateway:4000
+
+	reverse_proxy web:3000
+}

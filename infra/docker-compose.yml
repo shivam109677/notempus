@@ -1,0 +1,217 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: notempus-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-notempus}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-notempus}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: notempus-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  db-migrate:
+    image: postgres:16-alpine
+    container_name: notempus-db-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-notempus}
+    volumes:
+      - ./sql/migrations:/migrations:ro
+    command: >-
+      sh -c "
+      psql -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -f /migrations/001_init.sql &&
+      psql -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -f /migrations/002_seed_reward_pool.sql &&
+      psql -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -f /migrations/003_trust_and_ops.sql
+      "
+
+  coturn:
+    image: coturn/coturn:4.6.2
+    container_name: notempus-coturn
+    restart: unless-stopped
+    ports:
+      - "3478:3478"
+      - "3478:3478/udp"
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        SERVICE_NAME: api-gateway
+    container_name: notempus-api-gateway
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgresql://app:app@postgres:5432/notempus
+      REDIS_URL: redis://redis:6379
+      MATCHING_SERVICE_URL: http://matching-service:4001
+      BILLING_SERVICE_URL: http://billing-service:4002
+      PAYMENTS_SERVICE_URL: http://payments-service:4004
+      VERIFICATION_SERVICE_URL: http://verification-service:4005
+      MODERATION_SERVICE_URL: http://moderation-service:4006
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+    ports:
+      - "4000:4000"
+
+  matching-service:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        SERVICE_NAME: matching-service
+    container_name: notempus-matching
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 4001
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_started
+    ports:
+      - "4001:4001"
+
+  billing-service:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        SERVICE_NAME: billing-service
+    container_name: notempus-billing
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 4002
+      DATABASE_URL: postgresql://app:app@postgres:5432/notempus
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    ports:
+      - "4002:4002"
+
+  signaling-service:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        SERVICE_NAME: signaling-service
+    container_name: notempus-signaling
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 4003
+      JWT_SECRET: ${JWT_SECRET:-dev-secret}
+    depends_on:
+      redis:
+        condition: service_started
+    ports:
+      - "4003:4003"
+
+  payments-service:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        SERVICE_NAME: payments-service
+    container_name: notempus-payments
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 4004
+      DATABASE_URL: postgresql://app:app@postgres:5432/notempus
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    ports:
+      - "4004:4004"
+
+  verification-service:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        SERVICE_NAME: verification-service
+    container_name: notempus-verification
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 4005
+      DATABASE_URL: postgresql://app:app@postgres:5432/notempus
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    ports:
+      - "4005:4005"
+
+  moderation-service:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        SERVICE_NAME: moderation-service
+    container_name: notempus-moderation
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 4006
+      DATABASE_URL: postgresql://app:app@postgres:5432/notempus
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    ports:
+      - "4006:4006"
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        SERVICE_NAME: web
+    container_name: notempus-web
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 3000
+    depends_on:
+      api-gateway:
+        condition: service_started
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:

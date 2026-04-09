@@ -1,0 +1,27 @@
+# VCS and local metadata
+.git
+.gitignore
+
+# Dependencies and build outputs
+node_modules
+**/node_modules
+.pnpm-store
+.turbo
+**/.turbo
+**/dist
+**/.next
+
+# Test and debug artifacts
+**/coverage
+**/test-results
+**/playwright-report
+**/*.log
+
+# Local tooling and env files
+.tools
+.env
+.env.*
+
+# IDE files
+.vscode
+.DS_Store

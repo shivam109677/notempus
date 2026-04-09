@@ -1,0 +1,213 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-notempus}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-notempus}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  db-migrate:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-notempus}
+    volumes:
+      - ./sql/migrations:/migrations:ro
+    command: >-
+      sh -c "
+      psql -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -f /migrations/001_init.sql &&
+      psql -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -f /migrations/002_seed_reward_pool.sql &&
+      psql -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -f /migrations/003_trust_and_ops.sql
+      "
+
+  coturn:
+    image: coturn/coturn:4.6.2
+    restart: unless-stopped
+    ports:
+      - "3478:3478"
+      - "3478:3478/udp"
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.deploy
+      args:
+        SERVICE_NAME: api-gateway
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgresql://app:app@postgres:5432/notempus
+      REDIS_URL: redis://redis:6379
+      MATCHING_SERVICE_URL: http://matching-service:4001
+      BILLING_SERVICE_URL: http://billing-service:4002
+      PAYMENTS_SERVICE_URL: http://payments-service:4004
+      VERIFICATION_SERVICE_URL: http://verification-service:4005
+      MODERATION_SERVICE_URL: http://moderation-service:4006
+      SIGNALING_WS_URL: ${SIGNALING_WS_URL:-wss://chat.example.com/ws}
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+
+  matching-service:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.deploy
+      args:
+        SERVICE_NAME: matching-service
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 4001
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_started
+
+  billing-service:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.deploy
+      args:
+        SERVICE_NAME: billing-service
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 4002
+      DATABASE_URL: postgresql://app:app@postgres:5432/notempus
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+
+  signaling-service:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.deploy
+      args:
+        SERVICE_NAME: signaling-service
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 4003
+      JWT_SECRET: ${JWT_SECRET:-dev-secret}
+    depends_on:
+      redis:
+        condition: service_started
+
+  payments-service:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.deploy
+      args:
+        SERVICE_NAME: payments-service
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 4004
+      DATABASE_URL: postgresql://app:app@postgres:5432/notempus
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+
+  verification-service:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.deploy
+      args:
+        SERVICE_NAME: verification-service
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 4005
+      DATABASE_URL: postgresql://app:app@postgres:5432/notempus
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+
+  moderation-service:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.deploy
+      args:
+        SERVICE_NAME: moderation-service
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 4006
+      DATABASE_URL: postgresql://app:app@postgres:5432/notempus
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.deploy
+      args:
+        SERVICE_NAME: web
+        NEXT_PUBLIC_GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-https://chat.example.com}
+        NEXT_PUBLIC_SIGNALING_WS_URL: ${NEXT_PUBLIC_SIGNALING_WS_URL:-wss://chat.example.com/ws}
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PORT: 3000
+    depends_on:
+      api-gateway:
+        condition: service_started
+
+  edge:
+    image: caddy:2.9.1-alpine
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-chat.example.com}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-ops@chat.example.com}
+    depends_on:
+      web:
+        condition: service_started
+      api-gateway:
+        condition: service_started
+      signaling-service:
+        condition: service_started
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

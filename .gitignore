@@ -1,0 +1,11 @@
+node_modules
+.pnpm-store
+.env
+.env.local
+coverage
+dist
+.next
+.DS_Store
+*.log
+apps/web/playwright-report
+apps/web/test-results
