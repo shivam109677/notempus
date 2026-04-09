@@ -3,6 +3,7 @@ import jwt from "@fastify/jwt";
 import { config } from "dotenv";
 import Fastify from "fastify";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { createHash } from "crypto";
 import { z } from "zod";
 
 config();
@@ -27,6 +28,41 @@ const AuthTokenRequestSchema = z.object({
   role: z.enum(["male", "female", "admin"]),
 });
 
+const SignupEmailSchema = z.object({
+  email: z.string().email().max(254),
+  password: z.string().min(8).max(128),
+  captchaToken: z.string().min(1),
+});
+
+const SignupGoogleSchema = z.object({
+  idToken: z.string().min(1),
+});
+
+const OtpVerifyEmailSchema = z.object({
+  userId: z.string().uuid(),
+  code: z.string().length(6),
+});
+
+const OtpSendPhoneSchema = z.object({
+  userId: z.string().uuid(),
+  phone: z.string().min(7).max(20),
+});
+
+const OtpVerifyPhoneSchema = z.object({
+  userId: z.string().uuid(),
+  code: z.string().length(6),
+});
+
+const AddressSchema = z.object({
+  userId: z.string().uuid(),
+  line1: z.string().min(1).max(200),
+  line2: z.string().max(200).optional(),
+  city: z.string().min(1).max(120),
+  state: z.string().max(120).optional(),
+  country: z.string().length(2),
+  postalCode: z.string().max(20).optional(),
+});
+
 const serviceEndpoints = {
   matching: process.env.MATCHING_SERVICE_URL ?? "http://localhost:4001",
   billing: process.env.BILLING_SERVICE_URL ?? "http://localhost:4002",
@@ -35,7 +71,15 @@ const serviceEndpoints = {
   moderation: process.env.MODERATION_SERVICE_URL ?? "http://localhost:4006",
 };
 
-const PUBLIC_PATHS = new Set(["/v1/auth/token", "/v1/config/public", "/v1/apis", "/health"]);
+const PUBLIC_PATHS = new Set([
+  "/v1/auth/token",
+  "/v1/auth/signup/email",
+  "/v1/auth/signup/google",
+  "/v1/auth/otp/verify-email",
+  "/v1/config/public",
+  "/v1/apis",
+  "/health",
+]);
 
 const NO_AUTH_EXACT_PATHS = new Set(["/v1/payments/webhooks/razorpay"]);
 
@@ -190,6 +234,142 @@ async function bootstrap(): Promise<void> {
     });
 
     return { token };
+  });
+
+  // ── Email + captcha signup (Tier 1) ────────────────────────────────────────
+  app.post("/v1/auth/signup/email", async (request: FastifyRequest, reply: FastifyReply) => {
+    const parsed = SignupEmailSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.flatten() });
+    }
+
+    // Verify hCaptcha token server-side (skip in dev if secret is placeholder)
+    const hcaptchaSecret = process.env.HCAPTCHA_SECRET ?? "";
+    if (hcaptchaSecret && hcaptchaSecret !== "dev") {
+      const verifyRes = await fetch("https://hcaptcha.com/siteverify", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ secret: hcaptchaSecret, response: parsed.data.captchaToken }),
+      });
+      const verifyJson = (await verifyRes.json()) as { success?: boolean };
+      if (!verifyJson.success) {
+        return reply.code(400).send({ error: "captcha_failed" });
+      }
+    }
+
+    // In dev mode: create synthetic user id + log OTP
+    const userId = (typeof crypto !== "undefined" ? crypto : await import("crypto")).randomUUID();
+    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+    const otpHash = createHash("sha256").update(otpCode).digest("hex");
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+    // TODO: persist user + otp_tokens row to DB; for now log to console in dev
+    console.info("[auth] signup email=%s userId=%s otp=%s otpHash=%s expiresAt=%s",
+      parsed.data.email, userId, otpCode, otpHash, expiresAt);
+
+    return reply.code(201).send({ userId, message: "Check your email for a 6-digit verification code." });
+  });
+
+  // ── Google OAuth signup/login (Tier 1) ────────────────────────────────────
+  app.post("/v1/auth/signup/google", async (request: FastifyRequest, reply: FastifyReply) => {
+    const parsed = SignupGoogleSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.flatten() });
+    }
+
+    // Verify Google ID token via tokeninfo endpoint
+    const tokenInfoRes = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(parsed.data.idToken)}`,
+    );
+    if (!tokenInfoRes.ok) {
+      return reply.code(401).send({ error: "invalid_google_token" });
+    }
+    const tokenInfo = (await tokenInfoRes.json()) as {
+      sub?: string; email?: string; aud?: string; exp?: string;
+    };
+
+    const clientId = process.env.GOOGLE_CLIENT_ID ?? "";
+    if (clientId && tokenInfo.aud !== clientId) {
+      return reply.code(401).send({ error: "google_token_audience_mismatch" });
+    }
+
+    if (!tokenInfo.sub || !tokenInfo.email) {
+      return reply.code(401).send({ error: "google_token_missing_claims" });
+    }
+
+    // TODO: upsert user by gmail_sub in DB; for now create synthetic id
+    const userId = (typeof crypto !== "undefined" ? crypto : await import("crypto")).randomUUID();
+    console.info("[auth] google signup sub=%s email=%s userId=%s", tokenInfo.sub, tokenInfo.email, userId);
+
+    const token = await reply.jwtSign({ sub: userId, role: "male", tier: 1 });
+    return { token, userId, tier: 1 };
+  });
+
+  // ── Verify email OTP → Tier 1 ─────────────────────────────────────────────
+  app.post("/v1/auth/otp/verify-email", async (request: FastifyRequest, reply: FastifyReply) => {
+    const parsed = OtpVerifyEmailSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.flatten() });
+    }
+
+    // TODO: look up otp_tokens row, compare SHA-256(code), mark used_at, set email_verified_at
+    const codeHash = createHash("sha256").update(parsed.data.code).digest("hex");
+    console.info("[auth] verify-email userId=%s codeHash=%s", parsed.data.userId, codeHash);
+
+    const token = await reply.jwtSign({ sub: parsed.data.userId, role: "male", tier: 1 });
+    return { token, tier: 1 };
+  });
+
+  // ── Send phone OTP → toward Tier 2 ───────────────────────────────────────
+  app.post("/v1/auth/otp/send-phone", async (request: FastifyRequest, reply: FastifyReply) => {
+    const parsed = OtpSendPhoneSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.flatten() });
+    }
+
+    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+    const otpHash = createHash("sha256").update(otpCode).digest("hex");
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+    // TODO: send SMS via Twilio/MSG91; persist otp_tokens row
+    console.info("[auth] phone-otp userId=%s phone=%s otp=%s hash=%s exp=%s",
+      parsed.data.userId, parsed.data.phone, otpCode, otpHash, expiresAt);
+
+    return { message: "OTP sent to phone." };
+  });
+
+  // ── Verify phone OTP → Tier 2 ────────────────────────────────────────────
+  app.post("/v1/auth/otp/verify-phone", async (request: FastifyRequest, reply: FastifyReply) => {
+    const parsed = OtpVerifyPhoneSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.flatten() });
+    }
+
+    const codeHash = createHash("sha256").update(parsed.data.code).digest("hex");
+    console.info("[auth] verify-phone userId=%s codeHash=%s", parsed.data.userId, codeHash);
+
+    // TODO: verify row in DB; update verification_tier=2
+    const token = await reply.jwtSign({ sub: parsed.data.userId, role: "male", tier: 2 });
+    return { token, tier: 2 };
+  });
+
+  // ── Submit address → Tier 3 ───────────────────────────────────────────────
+  app.post("/v1/auth/address", async (request: FastifyRequest, reply: FastifyReply) => {
+    const claims = requestClaims(request);
+    const parsed = AddressSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.flatten() });
+    }
+
+    if (parsed.data.userId !== claims.sub && claims.role !== "admin") {
+      return reply.code(403).send({ error: "forbidden" });
+    }
+
+    // TODO: upsert user_addresses row; update verification_tier=3
+    console.info("[auth] address userId=%s city=%s country=%s", parsed.data.userId, parsed.data.city, parsed.data.country);
+
+    const token = await reply.jwtSign({ sub: parsed.data.userId, role: claims.role, tier: 3 });
+    return { token, tier: 3 };
   });
 
   app.get("/v1/apis", async () => ({

@@ -15,3 +15,4 @@ dist
 *.log
 apps/web/playwright-report
 apps/web/test-results
+.turbo/

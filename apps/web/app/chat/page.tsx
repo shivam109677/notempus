@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type JSX } from "react";
+import ProfileDialog from "../../components/ProfileDialog";
+import { storageKeys as profileStorageKeys } from "../../components/ProfileDialog";
 
 type UserRole = "viewer" | "host";
 type BackendRole = "male" | "female";
@@ -176,6 +178,14 @@ export default function ChatPage(): JSX.Element {
   const [copiedInviteLink, setCopiedInviteLink] = useState(false);
   const [isQuickStarting, setIsQuickStarting] = useState(false);
 
+  // Camera & safe-mode state
+  const [cameraEnabled, setCameraEnabled] = useState(true);
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [blurActive, setBlurActive] = useState(false);
+  const [safeModePending, setSafeModePending] = useState(false);
+  const [localSafeModeAccepted, setLocalSafeModeAccepted] = useState(false);
+  const [remoteSafeModeAccepted, setRemoteSafeModeAccepted] = useState(false);
+
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -284,6 +294,11 @@ export default function ChatPage(): JSX.Element {
 
     window.localStorage.setItem(storageKeys.viewerUserId, persistedViewer);
     window.localStorage.setItem(storageKeys.hostUserId, persistedHost);
+
+    // Auto-open profile dialog for first-time visitors
+    if (!persistedNickname) {
+      setProfileDialogOpen(true);
+    }
 
     void checkGatewayHealth(defaults.gateway);
     void loadPublicConfig(defaults.gateway);
@@ -786,6 +801,32 @@ export default function ChatPage(): JSX.Element {
         setStatusText("The other person ended the chat.");
         closePeer();
       }
+
+      if (parsed.event === "safe_mode.request") {
+        setBlurActive(true);
+        setSafeModePending(true);
+        setLocalSafeModeAccepted(false);
+        setRemoteSafeModeAccepted(false);
+        addEvent("Peer requested safe mode.");
+      }
+
+      if (parsed.event === "safe_mode.accept") {
+        setRemoteSafeModeAccepted(true);
+        // Lift blur only when both sides accepted
+        setLocalSafeModeAccepted((local) => {
+          if (local) {
+            setSafeModePending(false);
+            setBlurActive(false);
+            addEvent("Both accepted — safe mode lifted.");
+          }
+          return local;
+        });
+      }
+
+      if (parsed.event === "safe_mode.reject") {
+        addEvent("Peer rejected safe mode — ending call.");
+        void endChat();
+      }
     } catch (error) {
       addApiLog("Process signaling", 0, { error: error instanceof Error ? error.message : "signaling_error" });
     }
@@ -1069,7 +1110,14 @@ export default function ChatPage(): JSX.Element {
         {
           userId: viewerUserId,
           mode: matchMode,
-          preferredLanguage: "en",
+          preferredLanguage: window.localStorage.getItem(profileStorageKeys.preferredLanguage) ?? "en",
+          interestTags: (() => {
+            try {
+              return JSON.parse(window.localStorage.getItem(profileStorageKeys.interestTags) ?? "[]") as string[];
+            } catch { return []; }
+          })(),
+          mood: window.localStorage.getItem(profileStorageKeys.mood) ?? "chill",
+          intent: window.localStorage.getItem(profileStorageKeys.intent) ?? "chat",
         },
         "viewer",
       ),
@@ -1339,6 +1387,44 @@ export default function ChatPage(): JSX.Element {
     );
   }
 
+  function toggleCamera(): void {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    const newEnabled = !cameraEnabled;
+    stream.getVideoTracks().forEach((t) => { t.enabled = newEnabled; });
+    setCameraEnabled(newEnabled);
+    addEvent(newEnabled ? "Camera turned on." : "Camera turned off.");
+  }
+
+  function activateSafeMode(): void {
+    setBlurActive(true);
+    setSafeModePending(true);
+    setLocalSafeModeAccepted(false);
+    setRemoteSafeModeAccepted(false);
+    void sendSignal("safe_mode.request", { reason: "manual" });
+    addEvent("Safe mode activated — waiting for peer.");
+  }
+
+  function acceptSafeMode(): void {
+    setLocalSafeModeAccepted(true);
+    void sendSignal("safe_mode.accept", { reason: "accepted" });
+    // If the remote already accepted, lift blur
+    if (remoteSafeModeAccepted) {
+      setSafeModePending(false);
+      setBlurActive(false);
+      addEvent("Both accepted — safe mode lifted.");
+    } else {
+      addEvent("You accepted safe mode. Waiting for peer.");
+    }
+  }
+
+  function rejectSafeMode(): void {
+    void sendSignal("safe_mode.reject", { reason: "rejected" });
+    void reportUser();
+    void endChat();
+    addEvent("Safe mode rejected — call ended and user reported.");
+  }
+
   async function sendChat(): Promise<void> {
     const text = chatInput.trim();
     if (!text) {
@@ -1413,6 +1499,16 @@ export default function ChatPage(): JSX.Element {
 
   return (
     <div className="site-root">
+      <ProfileDialog
+        open={profileDialogOpen}
+        onClose={() => setProfileDialogOpen(false)}
+        onSaved={(saved) => {
+          setNickname(saved.nickname);
+          setRole(saved.role);
+          setMatchMode(saved.matchMode);
+        }}
+      />
+
       <header className="site-header">
         <Link href="/" className="brand-link">
           Notempus
@@ -1422,6 +1518,13 @@ export default function ChatPage(): JSX.Element {
           <Link href="/join">Join invite</Link>
           <Link href="/earn">Earn</Link>
           <Link href="/safety">Safety</Link>
+          <button
+            type="button"
+            className="btn-profile-trigger"
+            onClick={() => setProfileDialogOpen(true)}
+          >
+            {nickname ? `✏️ ${nickname}` : "⚙️ Set up profile"}
+          </button>
         </nav>
       </header>
 
@@ -1433,17 +1536,78 @@ export default function ChatPage(): JSX.Element {
           </div>
 
           <div className="video-stage">
-            <video ref={remoteVideoRef} autoPlay playsInline className="video-remote" />
+            {/* Remote video + blur overlay */}
+            <div style={{ position: "relative", flex: 1 }}>
+              <video ref={remoteVideoRef} autoPlay playsInline className="video-remote" />
+              {(blurActive || safeModePending) && (
+                <div className="safe-mode-overlay">
+                  <span className="safe-mode-badge">🛡 Safe mode active</span>
+                </div>
+              )}
+            </div>
             <div className="remote-overlay">{callStateLabel}</div>
 
-            <div className="video-local-wrap">
-              <video ref={localVideoRef} autoPlay muted playsInline className="video-local" />
+            {/* Local video tile with camera-off placeholder */}
+            <div className="video-local-wrap" style={{ position: "relative" }}>
+              <video
+                ref={localVideoRef}
+                autoPlay
+                muted
+                playsInline
+                className="video-local"
+                style={{ display: cameraEnabled ? undefined : "none" }}
+              />
+              {!cameraEnabled && (
+                <div className="video-off-placeholder">
+                  <span className="video-off-icon">📷</span>
+                  <span>Camera off</span>
+                </div>
+              )}
             </div>
+
+            {/* Safe-mode consent modal */}
+            {safeModePending && !localSafeModeAccepted && (
+              <div className="dialog-backdrop">
+                <div className="safe-mode-modal">
+                  <h3>🛡 Unsafe content detected</h3>
+                  <p>
+                    Your peer has triggered safe mode. Accept to keep the call
+                    with cameras blurred, or reject and leave the room.
+                  </p>
+                  <div className="safe-mode-actions">
+                    <button className="btn-primary" onClick={acceptSafeMode}>
+                      Accept safe mode
+                    </button>
+                    <button className="btn-ghost" onClick={rejectSafeMode}>
+                      Reject & leave
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="stage-controls">
             <button className="btn-primary" onClick={() => void oneTapQuickStart()} disabled={isQuickStarting}>
               {isQuickStarting ? "Starting..." : "One-tap quick start"}
+            </button>
+            <button
+              type="button"
+              className={cameraEnabled ? "btn-secondary" : "btn-primary"}
+              onClick={toggleCamera}
+              title={cameraEnabled ? "Turn camera off" : "Turn camera on"}
+              disabled={mediaState !== "ready"}
+            >
+              {cameraEnabled ? "📷 Camera on" : "📷 Camera off"}
+            </button>
+            <button
+              type="button"
+              className={blurActive ? "btn-primary" : "btn-secondary"}
+              onClick={activateSafeMode}
+              title="Activate safe mode (blurs both cameras until both accept)"
+              disabled={callState !== "live"}
+            >
+              🛡 Safe mode
             </button>
             <Link className="btn-secondary" href="/chat/profile">
               Profile page

@@ -7,6 +7,9 @@ export const JoinMatchRequestSchema = z.object({
   userId: z.string().uuid(),
   mode: ChatModeSchema,
   preferredLanguage: z.string().min(2).max(20).optional(),
+  interestTags: z.array(z.string().max(40)).max(8).optional(),
+  mood: z.enum(["chill", "curious", "playful", "serious"]).optional(),
+  intent: z.enum(["chat", "learn", "entertain"]).optional(),
 });
 export type JoinMatchRequest = z.infer<typeof JoinMatchRequestSchema>;
 

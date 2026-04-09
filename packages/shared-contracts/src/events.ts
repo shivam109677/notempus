@@ -9,7 +9,10 @@ export type DomainEventName =
   | "billing.stopped"
   | "wallet.debited"
   | "wallet.credited"
-  | "report.created";
+  | "report.created"
+  | "safe_mode.request"
+  | "safe_mode.accept"
+  | "safe_mode.reject";
 
 export interface DomainEvent<T = Record<string, unknown>> {
   id: string;

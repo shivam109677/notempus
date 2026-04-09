@@ -48,6 +48,49 @@ function estimateWaitSeconds(queueSize: number, femalePoolSize: number): number 
   return Math.max(1, Math.ceil((queueSize / femalePoolSize) * OFFER_TIMEOUT_SECONDS));
 }
 
+/**
+ * Compute an affinity score (0-100) between two match requests.
+ * Soft scoring only — pairs always match regardless of score.
+ */
+function computeAffinity(
+  req: Record<string, string>,
+  femaleData: Record<string, string>,
+): number {
+  let score = 0;
+
+  // Language match: +30
+  if (
+    req.preferred_language &&
+    femaleData.preferred_language &&
+    req.preferred_language === femaleData.preferred_language
+  ) {
+    score += 30;
+  }
+
+  // Shared interests: +10 per tag, capped at 40
+  try {
+    const maleTags: string[] = JSON.parse(req.interest_tags || "[]") as string[];
+    const femaleTags: string[] = JSON.parse(femaleData.interest_tags || "[]") as string[];
+    const femalSet = new Set(femaleTags);
+    const shared = maleTags.filter((t) => femalSet.has(t)).length;
+    score += Math.min(40, shared * 10);
+  } catch {
+    // ignore malformed JSON
+  }
+
+  // Mood compatibility: same mood gets +20
+  if (req.mood && femaleData.mood && req.mood === femaleData.mood) {
+    score += 20;
+  }
+
+  // Intent match: +10
+  if (req.intent && femaleData.intent && req.intent === femaleData.intent) {
+    score += 10;
+  }
+
+  return Math.min(100, score);
+}
+
 async function dispatchOnce(): Promise<
   | { status: "no-female" }
   | { status: "no-male" }
@@ -70,11 +113,13 @@ async function dispatchOnce(): Promise<
     return { status: "no-male" };
   }
 
+  const affinityScore = computeAffinity(request, {});
   const now = new Date().toISOString();
   await redis.hset(matchKey(requestId), {
     status: "offered",
     offered_female_user_id: femaleUserId,
     offer_expires_at: new Date(Date.now() + OFFER_TIMEOUT_SECONDS * 1000).toISOString(),
+    affinity_score: String(affinityScore),
     updated_at: now,
   });
   await redis.set(offerKey(requestId), femaleUserId, "EX", OFFER_TIMEOUT_SECONDS);
@@ -169,6 +214,9 @@ async function bootstrap(): Promise<void> {
       requested_at: now,
       updated_at: now,
       preferred_language: parsed.data.preferredLanguage ?? "",
+      interest_tags: JSON.stringify(parsed.data.interestTags ?? []),
+      mood: parsed.data.mood ?? "chill",
+      intent: parsed.data.intent ?? "chat",
     });
     await redis.expire(matchKey(requestId), 60 * 15);
 
