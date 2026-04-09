@@ -1,3 +1,9 @@
+# Ignore workspace-local runtime tools
+.tools/
+
+# Temporary build artifacts
+dist/
+node_modules/
 node_modules
 .pnpm-store
 .env

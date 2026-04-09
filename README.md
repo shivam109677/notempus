@@ -3,6 +3,28 @@
 =======
 # Notempus MVP
 
+## Local Node runtime
+
+This repository intentionally does not track the local Node runtime stored under `.tools/node`.
+If you need to run the project locally, download the appropriate Node binary and place it at `.tools/node/bin/node` (or install Node via your preferred method). Example using Corepack/Node download tooling in this project:
+
+  1. Install Node locally (one option):
+
+	  ```bash
+	  corepack enable
+	  # or use asdf/nvm/homebrew as you prefer to install matching Node version
+	  ```
+
+  2. Create the expected folder if needed:
+
+	  ```bash
+	  mkdir -p .tools/node/bin
+	  # place the node binary at .tools/node/bin/node
+	  ```
+
+After placing the runtime, you can run local tooling. The `.tools/` directory is ignored from git; do not commit it. If you're preparing to push, contact the repository owner or follow the project CONTRIBUTING guidelines.
+
+
 Trust-first random video chat platform MVP with monetized verified chat.
 
 ## Stack
