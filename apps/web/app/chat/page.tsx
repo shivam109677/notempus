@@ -164,6 +164,8 @@ export default function ChatPage(): JSX.Element {
   const [callState, setCallState] = useState<CallState>("idle");
   const [statusText, setStatusText] = useState("Ready to start");
   const [mediaError, setMediaError] = useState("");
+  const [apiError, setApiError] = useState("");
+  const [connectionError, setConnectionError] = useState("");
   const [isSetupReady, setIsSetupReady] = useState(false);
 
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
@@ -431,9 +433,27 @@ export default function ChatPage(): JSX.Element {
     try {
       const result = await fn();
       addApiLog(title, result.status, result.payload);
+      
+      // Show error if API returns 5xx or client error
+      if (result.status >= 400) {
+        const errorMsg = typeof result.payload === 'object' && result.payload !== null 
+          ? (result.payload as any).message || `API error (${result.status})`
+          : `API error (${result.status})`;
+        setApiError(`${title} failed: ${errorMsg}`);
+      } else {
+        setApiError(""); // Clear errors on success
+      }
       return result;
     } catch (error) {
-      addApiLog(title, 0, { error: error instanceof Error ? error.message : "unknown_error" });
+      const errorMessage = error instanceof Error ? error.message : "unknown_error";
+      addApiLog(title, 0, { error: errorMessage });
+      
+      // Show connection-related errors differently
+      if (errorMessage.includes("fetch") || errorMessage.includes("network")) {
+        setConnectionError(`Connection failed: ${title}`);
+      } else {
+        setApiError(`${title} failed: ${errorMessage}`);
+      }
       return null;
     }
   }
@@ -894,12 +914,14 @@ export default function ChatPage(): JSX.Element {
 
       ws.onerror = () => {
         setWsState("error");
+        setConnectionError("WebSocket connection error. Check your network connection.");
         addEvent("Realtime connection failed.");
         done(false);
       };
 
       ws.onclose = () => {
         setWsState("closed");
+        setConnectionError("Connection closed. Please refresh and try again.");
         done(false);
       };
 
@@ -1503,6 +1525,31 @@ export default function ChatPage(): JSX.Element {
     <GuestChatLayout>
       <div className="guest-video-container">
         <div className="guest-video-stage">
+          {/* Error/Connection Status Banner */}
+          {(mediaError || connectionError || apiError) && (
+            <div className="guest-error-banner">
+              <span className="error-icon">⚠️</span>
+              <div className="error-content">
+                <p className="error-title">
+                  {mediaError ? "Camera Error" : connectionError ? "Connection Error" : "Server Error"}
+                </p>
+                <p className="error-message">
+                  {mediaError || connectionError || apiError}
+                </p>
+              </div>
+              <button
+                className="error-close"
+                onClick={() => {
+                  setMediaError("");
+                  setConnectionError("");
+                  setApiError("");
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           {/* Remote video */}
           <div className="guest-video-remote-wrap">
             <video ref={remoteVideoRef} autoPlay playsInline className="guest-video-remote" />
@@ -1510,6 +1557,12 @@ export default function ChatPage(): JSX.Element {
               <div className="guest-video-placeholder">
                 <span className="placeholder-icon">📷</span>
                 <span>Camera off</span>
+              </div>
+            )}
+            {callState === "searching" && (
+              <div className="guest-searching-overlay">
+                <div className="spinner"></div>
+                <p>Searching for someone...</p>
               </div>
             )}
           </div>
@@ -1543,9 +1596,15 @@ export default function ChatPage(): JSX.Element {
           <button
             className="guest-btn guest-btn-primary"
             onClick={() => void oneTapQuickStart()}
-            disabled={isQuickStarting}
+            disabled={isQuickStarting || callState === "searching"}
           >
-            {isQuickStarting ? "⏳ Starting..." : "▶ Start Chat"}
+            {isQuickStarting ? (
+              <>
+                <span className="btn-spinner"></span> Starting...
+              </>
+            ) : (
+              <>▶ Start Chat</>
+            )}
           </button>
           <button
             className={`guest-btn ${cameraEnabled ? "guest-btn-secondary" : "guest-btn-primary"}`}
@@ -1867,6 +1926,145 @@ export default function ChatPage(): JSX.Element {
             padding: 0.6rem 1rem;
             font-size: 0.85rem;
           }
+        }
+
+        /* Error Banner Styles */
+        .guest-error-banner {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          z-index: 50;
+          background: linear-gradient(135deg, rgba(220, 53, 69, 0.95), rgba(180, 30, 45, 0.95));
+          border-bottom: 2px solid rgba(255, 140, 57, 0.3);
+          padding: 1rem;
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          backdrop-filter: blur(8px);
+          animation: slideDown 300ms ease-out;
+        }
+
+        @keyframes slideDown {
+          from {
+            transform: translateY(-100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateY(0);
+            opacity: 1;
+          }
+        }
+
+        .error-icon {
+          font-size: 1.5rem;
+          flex-shrink: 0;
+        }
+
+        .error-content {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+
+        .error-title {
+          margin: 0;
+          font-size: 0.95rem;
+          font-weight: 700;
+          color: #fff;
+          letter-spacing: -0.01em;
+        }
+
+        .error-message {
+          margin: 0;
+          font-size: 0.8rem;
+          color: #ffcccc;
+          opacity: 0.9;
+        }
+
+        .error-close {
+          flex-shrink: 0;
+          width: 32px;
+          height: 32px;
+          border: none;
+          background: rgba(255, 255, 255, 0.15);
+          border-radius: 50%;
+          color: #fff;
+          font-size: 1.2rem;
+          cursor: pointer;
+          transition: all 150ms ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .error-close:hover {
+          background: rgba(255, 255, 255, 0.25);
+          transform: scale(1.1);
+        }
+
+        /* Searching Overlay */
+        .guest-searching-overlay {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(5, 15, 24, 0.85);
+          backdrop-filter: blur(4px);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 1rem;
+          z-index: 40;
+          border-radius: 16px;
+          animation: fadeIn 300ms ease-out;
+        }
+
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+
+        .spinner {
+          width: 48px;
+          height: 48px;
+          border: 3px solid rgba(255, 140, 57, 0.2);
+          border-top-color: #ff8c39;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+
+        .guest-searching-overlay p {
+          margin: 0;
+          font-size: 1rem;
+          font-weight: 600;
+          color: #eff7fb;
+          letter-spacing: -0.01em;
+        }
+
+        /* Button Spinner */
+        .btn-spinner {
+          display: inline-block;
+          width: 14px;
+          height: 14px;
+          border: 2px solid rgba(255, 255, 255, 0.3);
+          border-top-color: #fff;
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+          margin-right: 6px;
         }
       `}</style>
     </GuestChatLayout>
