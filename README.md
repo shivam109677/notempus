@@ -1,126 +1,136 @@
-<<<<<<< HEAD
-# notempus
-=======
-# Notempus MVP
+# Notempus
 
-## Local Node runtime
+Concise instructions for starting the project locally and in a full-stack environment.
 
-This repository intentionally does not track the local Node runtime stored under `.tools/node`.
-If you need to run the project locally, download the appropriate Node binary and place it at `.tools/node/bin/node` (or install Node via your preferred method). Example using Corepack/Node download tooling in this project:
+## ⚡ Quick Start (Copy & Paste)
 
-  1. Install Node locally (one option):
+Run this to start everything:
 
-	  ```bash
-	  corepack enable
-	  # or use asdf/nvm/homebrew as you prefer to install matching Node version
-	  ```
+```bash
+export PATH="$PWD/.tools/node/bin:$PATH" && \
+export COREPACK_HOME="$PWD/.tools/corepack" && \
+.tools/node/bin/pnpm install && \
+.tools/node/bin/pnpm dev
+```
 
-  2. Create the expected folder if needed:
+Then open:
+- Web: http://localhost:3000
+- Guest chat: http://localhost:3000/chat?guest=true
+- API Gateway: http://127.0.0.1:4000
+- Other services: http://127.0.0.1:4001–4006
 
-	  ```bash
-	  mkdir -p .tools/node/bin
-	  # place the node binary at .tools/node/bin/node
-	  ```
+**Prerequisites**
+- Node.js 22+ (project uses a workspace-local Node runtime in `.tools/node` if present)
+- pnpm 9+ (Corepack can be used to manage pnpm)
+- Docker (supports `docker compose`)
 
-After placing the runtime, you can run local tooling. The `.tools/` directory is ignored from git; do not commit it. If you're preparing to push, contact the repository owner or follow the project CONTRIBUTING guidelines.
+**Workspace layout (short)**
+- Frontend: `apps/web` (Next.js)
+- Backend services: `apps/*` (TypeScript + Fastify)
+- Infra: `infra/docker-compose.yml`
 
+**Local development - quick start**
+1. Copy environment template and update secrets:
 
-Trust-first random video chat platform MVP with monetized verified chat.
+	```bash
+	cp .env.example .env
+	# edit .env as needed
+	```
 
-## Stack
+2. Set up workspace-local Node and install dependencies:
 
-- Frontend: Next.js (apps/web)
-- Backend: TypeScript services (apps/*)
-- Data: PostgreSQL + Redis
-- Media: WebRTC with STUN/TURN
-- Infra: Docker Compose for local development
+    ```bash
+    export PATH="$PWD/.tools/node/bin:$PATH"
+    export COREPACK_HOME="$PWD/.tools/corepack"
+    .tools/node/bin/pnpm install
+    ```
 
-## Services
+3. Start all dev servers (web + backends in parallel):
 
-- `api-gateway`: JWT auth, REST aggregation, health checks
-- `matching-service`: queue-based matching and offer lifecycle
-- `billing-service`: per-second debits/credits and wallet ledger
-- `signaling-service`: WebSocket signaling for WebRTC offer/answer/ICE
-- `payments-service`: order creation + webhook verification + idempotent wallet credit
-- `verification-service`: selfie upload, liveness checks, admin verification review
-- `moderation-service`: reports, blocks, fraud signals, moderation actions
-- `shared-contracts`: shared zod schemas and event contracts
+    ```bash
+    export PATH="$PWD/.tools/node/bin:$PATH"
+    export COREPACK_HOME="$PWD/.tools/corepack"
+    .tools/node/bin/pnpm dev
+    ```
 
-## Quick Start
+    This starts:
+    - Web UI: http://localhost:3000
+    - API Gateway: http://127.0.0.1:4000
+    - Matching Service: http://127.0.0.1:4001
+    - Signaling Service: http://127.0.0.1:4003
+    - Payments Service: http://127.0.0.1:4004
+    - Verification Service: http://127.0.0.1:4005
+    - Moderation Service: http://127.0.0.1:4006
 
-Prerequisites:
-- Node.js 22+
-- pnpm 9+
-- Docker (with `docker compose` support)
+4. (Optional) Start only the web frontend (hot reload):
 
-1. Copy `.env.example` to `.env` and update secrets.
-2. Install dependencies: `pnpm install`.
-3. Start infra and services: `docker compose up --build`.
-4. Open the web app at `http://localhost:3000`.
+    ```bash
+    export PATH="$PWD/.tools/node/bin:$PATH"
+    export COREPACK_HOME="$PWD/.tools/corepack"
+    .tools/node/bin/pnpm --filter web dev
+    ```
 
-## App Experience
+5. Start full-stack with Docker (infra + services containerized):
 
-- Real WebRTC call flow in the web app (local and remote video)
-- Matching journey (go-live, queue, accept)
-- Session billing controls (start/stop)
-- Wallet topup, payment order creation, payout request
-- Verification, reporting, and fraud telemetry actions
+    ```bash
+    docker compose -f infra/docker-compose.yml up --build
+    # or run detached:
+    docker compose -f infra/docker-compose.yml up --build -d
+    ```
 
-## Core Invariants
+6. Stop containers:
+	```bash
+	# build + run a single service example (matching-service)
+	# from repo root:
+	pnpm --filter matching-service dev
+	```
 
-- Male wallet cannot go negative.
-- Reward pool cannot go negative.
-- Only one active paid session per male user.
-- Billing starts only when session is connected.
-- Payment and webhook operations are idempotent.
+	If a service lacks a `dev` script, run its compiled output or use `ts-node` per its `package.json` scripts.
 
-## Repository Layout
+**Production (compose) - summary**
+1. Create `.env` from `.env.example` and set production secrets and domain variables (`APP_DOMAIN`, `LETSENCRYPT_EMAIL`, `NEXT_PUBLIC_GATEWAY_URL`, `NEXT_PUBLIC_SIGNALING_WS_URL`).
+2. Start production compose stack:
 
-- `apps/web` - Next.js UI shell
-- `apps/api-gateway` - entry API service
-- `apps/matching-service` - matchmaking queues and state machine
-- `apps/billing-service` - billing and wallet ledger
-- `apps/signaling-service` - WebRTC signaling server
-- `packages/shared-contracts` - contracts shared across services
-- `infra/sql/migrations` - PostgreSQL schema
-- `infra/docker-compose.yml` - local orchestrator
+	```bash
+	docker compose -f infra/docker-compose.prod.yml up --build -d
+	```
 
-## Current Status
+3. To stop the production stack:
 
-- Completed: API gateway reverse-proxy with JWT auth and route-level role guards.
-- Completed: automated telemetry-driven anti-fraud worker in moderation-service.
-- Completed: integrated frontend app with live WebRTC signaling and backend workflows.
-- Completed: browser e2e coverage for two-user match and call flow in web app.
-- Completed: production deployment edge with TLS termination and secure websocket signaling path.
-- Completed: GitHub Actions workflow for building and pushing deploy images.
+	```bash
+	docker compose -f infra/docker-compose.prod.yml down --remove-orphans
+	```
 
-## Deployment
+**Common commands**
+```bash
+# Set up environment (run once per shell session)
+export PATH="$PWD/.tools/node/bin:$PATH"
+export COREPACK_HOME="$PWD/.tools/corepack"
 
-Use the production compose stack:
+# Install deps
+.tools/node/bin/pnpm install
 
-1. Create `.env` from `.env.example` and set production secrets.
-2. Set production domain variables in `.env`:
-	- `APP_DOMAIN`
-	- `LETSENCRYPT_EMAIL`
-	- `NEXT_PUBLIC_GATEWAY_URL=https://<app-domain>`
-	- `NEXT_PUBLIC_SIGNALING_WS_URL=wss://<app-domain>/ws`
-	- `SIGNALING_WS_URL=wss://<app-domain>/ws`
-3. Start stack: `docker compose -f infra/docker-compose.prod.yml up --build -d`
-4. App endpoint:
-	- `https://<app-domain>`
-	- Edge routing: `/v1/*` -> API gateway, `/ws` -> signaling service
+# Workspace typecheck
+.tools/node/bin/pnpm typecheck
 
-To stop:
+# Run web dev
+.tools/node/bin/pnpm --filter web dev
 
-- `docker compose -f infra/docker-compose.prod.yml down --remove-orphans`
+# Run a service dev (example: matching-service)
+.tools/node/bin/pnpm --filter matching-service dev
 
-## Tests
+# Start all services in parallel
+.tools/node/bin/pnpm dev
 
-- Run workspace typecheck: `pnpm typecheck`
-- Run browser e2e for two-user match and call journey: `pnpm --filter web test:e2e`
+# Start local infra (Docker)
+docker compose -f infra/docker-compose.yml up --build
+```
 
-## CI/CD
+**Notes & troubleshooting**
+- The repository may use a workspace-local Node runtime at `.tools/node`. If commands fail due to the Node binary missing, either install Node globally or place the binary at `.tools/node/bin/node` as documented in the project's setup notes.
+- If you prefer process management in production, run `gunicorn` with `uvicorn.workers.UvicornWorker` for Python ASGI apps; this repo is TypeScript/Node-first so this is optional.
 
-- `CI` workflow runs typecheck and Playwright web e2e on pull requests and `main`.
-- `Build and Push Images` workflow builds and pushes service images to GHCR on `main` and tags.
->>>>>>> be06456 (First commit)
+If you want, I can also:
+- add a `make` helper or `scripts/dev.md` with step-by-step start examples;
+- create a small `scripts/dev` that brings up selective services for faster iteration.
+

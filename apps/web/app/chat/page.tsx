@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type JSX } from "react";
 import ProfileDialog from "../../components/ProfileDialog";
+import GuestChatLayout from "../../components/GuestChatLayout";
 import { storageKeys as profileStorageKeys } from "../../components/ProfileDialog";
 
 type UserRole = "viewer" | "host";
@@ -208,6 +209,7 @@ export default function ChatPage(): JSX.Element {
   const queryRole = searchParams.get("role");
   const inviteFromUrl = searchParams.get("invite")?.trim() ?? "";
   const quickStartFromUrl = searchParams.get("quick") === "1";
+  const isGuest = searchParams.get("guest") === "true";
 
   const callStateLabel =
     callState === "searching"
@@ -1498,368 +1500,375 @@ export default function ChatPage(): JSX.Element {
   }, [isSetupReady, quickStartFromUrl, queryRole, role, inviteFromUrl, inviteCode]);
 
   return (
-    <div className="site-root">
-      <ProfileDialog
-        open={profileDialogOpen}
-        onClose={() => setProfileDialogOpen(false)}
-        onSaved={(saved) => {
-          setNickname(saved.nickname);
-          setRole(saved.role);
-          setMatchMode(saved.matchMode);
-        }}
-      />
-
-      <header className="site-header">
-        <Link href="/" className="brand-link">
-          Notempus
-        </Link>
-        <nav className="site-nav" aria-label="Primary navigation">
-          <Link href="/chat">Chat</Link>
-          <Link href="/join">Join invite</Link>
-          <Link href="/earn">Earn</Link>
-          <Link href="/safety">Safety</Link>
-          <button
-            type="button"
-            className="btn-profile-trigger"
-            onClick={() => setProfileDialogOpen(true)}
-          >
-            {nickname ? `✏️ ${nickname}` : "⚙️ Set up profile"}
-          </button>
-        </nav>
-      </header>
-
-      <main className="chat-page-wrap">
-        <section className="video-stage-card">
-          <div className="stage-head">
-            <h1>Talk to someone new, right now</h1>
-            <p>{statusText}</p>
-          </div>
-
-          <div className="video-stage">
-            {/* Remote video + blur overlay */}
-            <div style={{ position: "relative", flex: 1 }}>
-              <video ref={remoteVideoRef} autoPlay playsInline className="video-remote" />
-              {(blurActive || safeModePending) && (
-                <div className="safe-mode-overlay">
-                  <span className="safe-mode-badge">🛡 Safe mode active</span>
-                </div>
-              )}
-            </div>
-            <div className="remote-overlay">{callStateLabel}</div>
-
-            {/* Local video tile with camera-off placeholder */}
-            <div className="video-local-wrap" style={{ position: "relative" }}>
-              <video
-                ref={localVideoRef}
-                autoPlay
-                muted
-                playsInline
-                className="video-local"
-                style={{ display: cameraEnabled ? undefined : "none" }}
-              />
-              {!cameraEnabled && (
-                <div className="video-off-placeholder">
-                  <span className="video-off-icon">📷</span>
-                  <span>Camera off</span>
-                </div>
-              )}
-            </div>
-
-            {/* Safe-mode consent modal */}
-            {safeModePending && !localSafeModeAccepted && (
-              <div className="dialog-backdrop">
-                <div className="safe-mode-modal">
-                  <h3>🛡 Unsafe content detected</h3>
-                  <p>
-                    Your peer has triggered safe mode. Accept to keep the call
-                    with cameras blurred, or reject and leave the room.
-                  </p>
-                  <div className="safe-mode-actions">
-                    <button className="btn-primary" onClick={acceptSafeMode}>
-                      Accept safe mode
-                    </button>
-                    <button className="btn-ghost" onClick={rejectSafeMode}>
-                      Reject & leave
-                    </button>
-                  </div>
-                </div>
+    <GuestChatLayout>
+      <div className="guest-video-container">
+        <div className="guest-video-stage">
+          {/* Remote video */}
+          <div className="guest-video-remote-wrap">
+            <video ref={remoteVideoRef} autoPlay playsInline className="guest-video-remote" />
+            {!cameraEnabled && (
+              <div className="guest-video-placeholder">
+                <span className="placeholder-icon">📷</span>
+                <span>Camera off</span>
               </div>
             )}
           </div>
 
-          <div className="stage-controls">
-            <button className="btn-primary" onClick={() => void oneTapQuickStart()} disabled={isQuickStarting}>
-              {isQuickStarting ? "Starting..." : "One-tap quick start"}
-            </button>
-            <button
-              type="button"
-              className={cameraEnabled ? "btn-secondary" : "btn-primary"}
-              onClick={toggleCamera}
-              title={cameraEnabled ? "Turn camera off" : "Turn camera on"}
-              disabled={mediaState !== "ready"}
-            >
-              {cameraEnabled ? "📷 Camera on" : "📷 Camera off"}
-            </button>
-            <button
-              type="button"
-              className={blurActive ? "btn-primary" : "btn-secondary"}
-              onClick={activateSafeMode}
-              title="Activate safe mode (blurs both cameras until both accept)"
-              disabled={callState !== "live"}
-            >
-              🛡 Safe mode
-            </button>
-            <Link className="btn-secondary" href="/chat/profile">
-              Profile page
-            </Link>
-            <Link className="btn-secondary" href={quickStartPath}>
-              Quick start page
-            </Link>
-            <Link className="btn-secondary" href="/chat/invite">
-              Invite page
-            </Link>
-            <button className="btn-primary" onClick={() => void startLocalMedia()}>
-              Start camera
-            </button>
-            <button className="btn-secondary" onClick={() => void startMatching()}>
-              {role === "host" ? "Go live" : "Find someone"}
-            </button>
-            {role === "host" ? (
-              <button className="btn-secondary" onClick={() => void acceptInviteAndStart()} disabled={!inviteCode}>
-                Accept friend invite
-              </button>
-            ) : null}
-            <button className="btn-secondary" onClick={() => void connectSignaling()}>
-              Connect room
-            </button>
-            <button className="btn-secondary" onClick={() => void startCall()}>
-              Start call
-            </button>
-            <button className="btn-secondary" onClick={() => void nextChat()}>
-              Next chat
-            </button>
-            <button className="btn-ghost" onClick={() => void endChat()}>
-              End chat
-            </button>
+          {/* Local video */}
+          <div className="guest-video-local-wrap">
+            <video
+              ref={localVideoRef}
+              autoPlay
+              muted
+              playsInline
+              className="guest-video-local"
+              style={{ display: cameraEnabled ? undefined : "none" }}
+            />
+            {!cameraEnabled && (
+              <div className="guest-video-local-placeholder">
+                <span>📷</span>
+              </div>
+            )}
           </div>
 
-          {mediaError ? <p className="error-note">Camera error: {mediaError}</p> : null}
+          {/* Status overlay */}
+          <div className="guest-video-status">
+            <p className="status-text">{statusText}</p>
+            <p className="status-label">{callStateLabel}</p>
+          </div>
+        </div>
 
-          <section className="chat-box" aria-label="In-room chat">
-            <div className="chat-stream">
-              {chatMessages.length === 0 ? (
-                <p className="empty-note">Say hi to break the ice.</p>
-              ) : (
-                chatMessages.map((message, index) => (
-                  <article key={`${message.at}-${index}`} className={`chat-bubble ${message.from}`}>
-                    <p>{message.text}</p>
-                    <span>{new Date(message.at).toLocaleTimeString()}</span>
-                  </article>
-                ))
-              )}
+        {/* Simple controls */}
+        <div className="guest-controls">
+          <button
+            className="guest-btn guest-btn-primary"
+            onClick={() => void oneTapQuickStart()}
+            disabled={isQuickStarting}
+          >
+            {isQuickStarting ? "⏳ Starting..." : "▶ Start Chat"}
+          </button>
+          <button
+            className={`guest-btn ${cameraEnabled ? "guest-btn-secondary" : "guest-btn-primary"}`}
+            onClick={toggleCamera}
+            disabled={mediaState !== "ready"}
+            title={cameraEnabled ? "Turn camera off" : "Turn camera on"}
+          >
+            {cameraEnabled ? "📷" : "📷‍🗨️"} Camera
+          </button>
+          <button className="guest-btn guest-btn-secondary" onClick={() => void endChat()}>
+            ☎️ End call
+          </button>
+        </div>
+
+        {/* Chat messages */}
+        {chatMessages.length > 0 && (
+          <div className="guest-chat-panel">
+            <div className="guest-chat-messages">
+              {chatMessages.map((message, index) => (
+                <div key={`${message.at}-${index}`} className={`guest-chat-bubble guest-chat-${message.from}`}>
+                  <p>{message.text}</p>
+                </div>
+              ))}
             </div>
             <form
-              className="chat-compose"
+              className="guest-chat-compose"
               onSubmit={(event) => {
                 event.preventDefault();
                 void sendChat();
               }}
             >
               <input
-                placeholder="Type a message"
+                placeholder="Say something..."
                 value={chatInput}
                 onChange={(event) => setChatInput(event.target.value)}
               />
-              <button className="btn-secondary" type="submit" disabled={wsState !== "open"}>
+              <button type="submit" disabled={wsState !== "open"}>
                 Send
               </button>
             </form>
-          </section>
-        </section>
+          </div>
+        )}
+      </div>
 
-        <aside className="chat-sidebar">
-          <article className="panel-card">
-            <h2>Profile and setup pages</h2>
-            <p className="muted-text">
-              Profile, quick start, and invite setup now live on dedicated pages for a cleaner user flow.
-            </p>
-            <div className="inline-actions">
-              <Link className="btn-primary" href="/chat/profile">
-                Open profile page
-              </Link>
-              <Link className="btn-secondary" href={quickStartPath}>
-                Open quick start page
-              </Link>
-              <button className="btn-secondary" onClick={() => void mintToken(role)}>
-                Refresh pass
-              </button>
-              <button className="btn-secondary" onClick={() => void checkGatewayHealth()}>
-                Refresh connection
-              </button>
-            </div>
-            <p className="small-note">
-              Current profile: {nickname || "Guest"} · {role === "host" ? "Host" : "Viewer"} ·{" "}
-              {genderIdentity.replace("_", " ")} · {creatorProfile === "creator" ? "Creator" : "Normal user"}
-            </p>
-          </article>
+      <style jsx>{`
+        .guest-video-container {
+          display: flex;
+          flex-direction: column;
+          flex: 1;
+          gap: 1rem;
+          padding: 1rem;
+          max-width: 100%;
+          margin: 0 auto;
+          width: 100%;
+        }
 
-          <article className="panel-card">
-            <h2>Invite and matching page</h2>
-            <p className="muted-text">
-              {role === "viewer"
-                ? "Use the invite page to share your room quickly with friends."
-                : "Open invite page to join a friend room with a code or link."}
-            </p>
-            <div className="inline-actions">
-              <Link className="btn-primary" href="/chat/invite">
-                Open invite page
-              </Link>
-              {role === "host" ? (
-                <Link className="btn-secondary" href="/join">
-                  Enter invite code
-                </Link>
-              ) : null}
-            </div>
+        .guest-video-stage {
+          position: relative;
+          border-radius: 16px;
+          border: 1px solid rgba(157, 190, 205, 0.28);
+          background: #030a0f;
+          overflow: hidden;
+          flex: 1;
+          min-height: 300px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        }
 
-            {role === "viewer" ? (
-              <div className="code-box">
-                <p>Invite code</p>
-                <strong>{requestCode ? requestCode : "Not created yet"}</strong>
-                <div className="inline-actions">
-                  <button className="btn-secondary" onClick={() => void copyRequestCode()} disabled={!requestCode}>
-                    {copiedCode ? "Copied code" : "Copy code"}
-                  </button>
-                  <button className="btn-secondary" onClick={() => void copyInviteRoomLink()} disabled={!requestCode}>
-                    {copiedInviteLink ? "Copied link" : "Copy invite link"}
-                  </button>
-                  {inviteRoomPath ? (
-                    <a className="btn-ghost" href={inviteRoomPath}>
-                      Open invite link
-                    </a>
-                  ) : null}
-                </div>
-              </div>
-            ) : (
-              <>
-                <p className="small-note">Invite code loaded: {inviteCode || "None yet"}</p>
-                <div className="inline-actions">
-                  {inviteCode ? (
-                    <button className="btn-primary" onClick={() => void acceptInviteAndStart()}>
-                      Accept and join room
-                    </button>
-                  ) : null}
-                </div>
-              </>
-            )}
+        .guest-video-remote-wrap {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          width: 100%;
+          height: 100%;
+        }
 
-            <p className="muted-text">Chat room: {sessionId || "Preparing..."}</p>
-          </article>
+        .guest-video-remote {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          background: #030a0f;
+        }
 
-          <article className="panel-card">
-            <h2>{role === "host" ? "Host earnings" : "Viewer wallet"}</h2>
-            <p className="wallet-balance">
-              Balance: {walletBalance === null ? "Not loaded" : `${(walletBalance / 100).toFixed(2)} INR`}
-            </p>
+        .guest-video-placeholder {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.5rem;
+          color: #a9c1cc;
+          text-align: center;
+        }
 
-            <div className="field-grid">
-              <label>
-                Top-up amount (INR)
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={topupAmount}
-                  onChange={(event) => setTopupAmount(Number(event.target.value || 0))}
-                />
-              </label>
-              <label>
-                Payout amount (INR)
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={payoutAmount}
-                  onChange={(event) => setPayoutAmount(Number(event.target.value || 0))}
-                />
-              </label>
-            </div>
+        .placeholder-icon {
+          font-size: 3rem;
+        }
 
-            <div className="inline-actions">
-              <button className="btn-secondary" onClick={() => void refreshWallet()}>
-                Refresh balance
-              </button>
-              {role === "viewer" ? (
-                <button className="btn-secondary" onClick={() => void topupWallet()}>
-                  Top up
-                </button>
-              ) : (
-                <button className="btn-secondary" onClick={() => void requestPayout()}>
-                  Request payout
-                </button>
-              )}
-            </div>
-          </article>
+        .guest-video-local-wrap {
+          position: absolute;
+          bottom: 1rem;
+          right: 1rem;
+          width: 120px;
+          height: 160px;
+          border-radius: 12px;
+          overflow: hidden;
+          border: 2px solid rgba(157, 190, 205, 0.4);
+          background: #030a0f;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
 
-          <article className="panel-card">
-            <h2>Safety and trust</h2>
-            <p className="muted-text">Verification status: {verificationStatus}</p>
-            <div className="inline-actions">
-              <button className="btn-secondary" onClick={() => void runVerification()}>
-                Verify host profile
-              </button>
-              <button className="btn-secondary" onClick={() => void reportUser()}>
-                Report user
-              </button>
-              <button className="btn-ghost" onClick={() => void sendSafetyTelemetry()}>
-                Flag suspicious behavior
-              </button>
-            </div>
-          </article>
+        .guest-video-local {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
 
-          <article className="panel-card">
-            <h2>Connection status</h2>
-            <div className="chips-row">
-              <span className={`status-chip ${gatewayState}`}>App: {gatewayState}</span>
-              <span className={`status-chip ${wsState}`}>Room: {wsState}</span>
-              <span className={`status-chip ${mediaState}`}>Camera: {mediaState}</span>
-              <span className={`status-chip ${callState}`}>Call: {callStateLabel}</span>
-            </div>
-          </article>
+        .guest-video-local-placeholder {
+          width: 100%;
+          height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 2.5rem;
+          background: rgba(7, 22, 33, 0.8);
+        }
 
-          <details className="panel-card">
-            <summary>Recent activity</summary>
-            {latestApi ? <p className="muted-text">Latest action: {latestApi.title}</p> : null}
+        .guest-video-status {
+          position: absolute;
+          bottom: 1rem;
+          left: 1rem;
+          background: rgba(0, 0, 0, 0.6);
+          backdrop-filter: blur(8px);
+          padding: 0.75rem 1rem;
+          border-radius: 8px;
+          border: 1px solid rgba(157, 190, 205, 0.2);
+        }
 
-            <div className="activity-columns">
-              <div className="activity-list">
-                <h3>Realtime feed</h3>
-                {feedEvents.length === 0 ? (
-                  <p className="empty-note">No events yet.</p>
-                ) : (
-                  feedEvents.map((entry, index) => <p key={`${entry}-${index}`}>{entry}</p>)
-                )}
-              </div>
+        .status-text {
+          margin: 0;
+          font-size: 0.95rem;
+          color: #eff7fb;
+          font-weight: 500;
+        }
 
-              <div className="activity-list">
-                <h3>System events</h3>
-                {apiLogs.length === 0 ? (
-                  <p className="empty-note">No events yet.</p>
-                ) : (
-                  apiLogs.map((item, index) => (
-                    <article key={`${item.at}-${index}`} className="api-log-card">
-                      <div>
-                        <strong>{item.title}</strong>
-                        <span>{new Date(item.at).toLocaleTimeString()}</span>
-                      </div>
-                      <p className={item.status > 0 && item.status < 400 ? "ok-text" : "error-text"}>status {item.status}</p>
-                    </article>
-                  ))
-                )}
-              </div>
-            </div>
-          </details>
-        </aside>
-      </main>
-    </div>
+        .status-label {
+          margin: 0.25rem 0 0;
+          font-size: 0.8rem;
+          color: #a9c1cc;
+        }
+
+        .guest-controls {
+          display: flex;
+          gap: 0.75rem;
+          justify-content: center;
+          flex-wrap: wrap;
+        }
+
+        .guest-btn {
+          padding: 0.75rem 1.5rem;
+          border-radius: 12px;
+          border: none;
+          font-weight: 600;
+          cursor: pointer;
+          font-size: 0.95rem;
+          transition: all 200ms ease;
+          display: inline-flex;
+          align-items: center;
+          gap: 0.5rem;
+          white-space: nowrap;
+        }
+
+        .guest-btn-primary {
+          background: linear-gradient(130deg, rgba(255, 140, 57, 0.28), rgba(255, 140, 57, 0.08));
+          color: #ffd8bc;
+          border: 1px solid rgba(255, 140, 57, 0.5);
+        }
+
+        .guest-btn-primary:hover:not(:disabled) {
+          background: linear-gradient(130deg, rgba(255, 140, 57, 0.38), rgba(255, 140, 57, 0.18));
+          border-color: #ff8c39;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(255, 140, 57, 0.2);
+        }
+
+        .guest-btn-secondary {
+          background: rgba(7, 22, 33, 0.8);
+          color: #eff7fb;
+          border: 1px solid rgba(157, 190, 205, 0.28);
+        }
+
+        .guest-btn-secondary:hover:not(:disabled) {
+          background: rgba(7, 22, 33, 0.95);
+          border-color: rgba(255, 140, 57, 0.4);
+          transform: translateY(-2px);
+        }
+
+        .guest-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+          transform: none;
+        }
+
+        .guest-chat-panel {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          background: rgba(7, 22, 33, 0.6);
+          border: 1px solid rgba(157, 190, 205, 0.2);
+          border-radius: 12px;
+          padding: 1rem;
+          max-height: 200px;
+        }
+
+        .guest-chat-messages {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+          overflow-y: auto;
+          flex: 1;
+        }
+
+        .guest-chat-bubble {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+          padding: 0.5rem 0.75rem;
+          border-radius: 8px;
+        }
+
+        .guest-chat-me {
+          background: rgba(255, 140, 57, 0.1);
+          align-self: flex-end;
+          border: 1px solid rgba(255, 140, 57, 0.2);
+        }
+
+        .guest-chat-peer {
+          background: rgba(49, 154, 255, 0.08);
+          align-self: flex-start;
+          border: 1px solid rgba(49, 154, 255, 0.2);
+        }
+
+        .guest-chat-bubble p {
+          margin: 0;
+          font-size: 0.85rem;
+          color: #eff7fb;
+          line-height: 1.4;
+        }
+
+        .guest-chat-compose {
+          display: flex;
+          gap: 0.5rem;
+        }
+
+        .guest-chat-compose input {
+          flex: 1;
+          padding: 0.5rem 0.75rem;
+          border-radius: 8px;
+          border: 1px solid rgba(157, 190, 205, 0.2);
+          background: rgba(7, 22, 33, 0.8);
+          color: #eff7fb;
+          font-size: 0.85rem;
+        }
+
+        .guest-chat-compose input:focus {
+          outline: none;
+          border-color: rgba(255, 140, 57, 0.4);
+          background: rgba(7, 22, 33, 0.95);
+        }
+
+        .guest-chat-compose input::placeholder {
+          color: #7a8d98;
+        }
+
+        .guest-chat-compose button {
+          padding: 0.5rem 1rem;
+          background: rgba(255, 140, 57, 0.15);
+          border: 1px solid rgba(255, 140, 57, 0.3);
+          border-radius: 8px;
+          color: #ffd8bc;
+          font-weight: 600;
+          cursor: pointer;
+          font-size: 0.85rem;
+          transition: all 150ms ease;
+        }
+
+        .guest-chat-compose button:hover:not(:disabled) {
+          background: rgba(255, 140, 57, 0.25);
+          border-color: rgba(255, 140, 57, 0.5);
+        }
+
+        .guest-chat-compose button:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        @media (max-width: 768px) {
+          .guest-video-container {
+            padding: 0.75rem;
+            gap: 0.75rem;
+          }
+
+          .guest-video-local-wrap {
+            width: 100px;
+            height: 133px;
+          }
+
+          .guest-controls {
+            gap: 0.5rem;
+          }
+
+          .guest-btn {
+            padding: 0.6rem 1rem;
+            font-size: 0.85rem;
+          }
+        }
+      `}</style>
+    </GuestChatLayout>
   );
 }
