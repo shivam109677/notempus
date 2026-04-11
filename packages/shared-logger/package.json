@@ -1,0 +1,16 @@
+{
+  "name": "@shared/logger",
+  "version": "1.0.0",
+  "description": "Shared structured logging",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "pino": "^8.16.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

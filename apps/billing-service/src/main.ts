@@ -136,6 +136,20 @@ async function billSessionTick(sessionId: string): Promise<void> {
       return { keepActive: false, reason: "ended" as const };
     }
 
+    // Double-billing protection: create idempotency key and check if already processed
+    const tickTimestamp = Math.floor(Date.now() / 1000);
+    const idempotencyKey = `billing-tick-${sessionId}-${tickTimestamp}`;
+    
+    // Check if this exact tick was already processed (within same second)
+    const idempotencyResult = await client.query(
+      `SELECT id FROM billing_idempotency WHERE idempotency_key = $1`,
+      [idempotencyKey],
+    );
+    
+    if (idempotencyResult.rowCount > 0) {
+      return { keepActive: true, reason: "already_billed" as const };
+    }
+
     const maleWalletResult = await client.query(
       `SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`,
       [session.male_user_id],
@@ -178,6 +192,13 @@ async function billSessionTick(sessionId: string): Promise<void> {
 
     const maleBalanceAfter = maleWallet.balance_paise - debitPaise;
     const femaleBalanceAfter = femaleWallet.balance_paise + femaleCredit;
+
+    // Record idempotency key BEFORE making changes to prevent double-charging on retry
+    await client.query(
+      `INSERT INTO billing_idempotency (idempotency_key, session_id, created_at) VALUES ($1, $2, NOW())
+       ON CONFLICT (idempotency_key) DO NOTHING`,
+      [idempotencyKey, sessionId],
+    );
 
     await client.query(`UPDATE wallets SET balance_paise = $1, updated_at = NOW() WHERE id = $2`, [
       maleBalanceAfter,

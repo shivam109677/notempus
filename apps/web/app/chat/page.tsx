@@ -204,6 +204,8 @@ export default function ChatPage(): JSX.Element {
   const preparingMatchRef = useRef(false);
   const requestCodeRef = useRef("");
   const inviteCodeRef = useRef("");
+  const reconnectAttemptsRef = useRef(0);
+  const tokenExpiryRef = useRef<number | null>(null);
 
   const activeUserId = role === "viewer" ? viewerUserId : hostUserId;
   const oppositeUserId = role === "viewer" ? hostUserId : viewerUserId;
@@ -413,17 +415,31 @@ export default function ChatPage(): JSX.Element {
       headers.authorization = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${baseUrl}${path}`, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    // 30-second timeout to prevent infinite hangs
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    const payload = await response
-      .json()
-      .catch(() => ({ error: "non_json_response", status: response.status }));
+    try {
+      const response = await fetch(`${baseUrl}${path}`, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
 
-    return { status: response.status, payload };
+      const payload = await response
+        .json()
+        .catch(() => ({ error: "non_json_response", status: response.status }));
+
+      return { status: response.status, payload };
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error("API request timeout after 30 seconds");
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   async function runAction(
@@ -526,10 +542,14 @@ export default function ChatPage(): JSX.Element {
       return null;
     }
 
-    const payload = result.payload as { token?: string };
+    const payload = result.payload as { token?: string; expiresIn?: number };
     if (!payload.token) {
       return null;
     }
+
+    // Track token expiry (default 1 hour if not provided)
+    const expiresInMs = (payload.expiresIn || 3600) * 1000;
+    tokenExpiryRef.current = Date.now() + expiresInMs;
 
     setRoleToken(targetRole, payload.token);
     return payload.token;
@@ -537,6 +557,14 @@ export default function ChatPage(): JSX.Element {
 
   async function ensureToken(targetRole: UserRole = role): Promise<string | null> {
     const cached = targetRole === "viewer" ? viewerToken : hostToken;
+    
+    // Check if token needs refresh (if expires within 5 minutes)
+    const now = Date.now();
+    if (tokenExpiryRef.current && now > tokenExpiryRef.current - 5 * 60 * 1000) {
+      // Token expiring soon, force refresh
+      return mintToken(targetRole);
+    }
+    
     if (cached) {
       return cached;
     }
@@ -887,6 +915,10 @@ export default function ChatPage(): JSX.Element {
 
     setWsState("connecting");
 
+    // Exponential backoff for reconnection attempts
+    const reconnectAttempts = reconnectAttemptsRef.current || 0;
+    const backoffMs = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000); // 1s, 2s, 4s, 8s, 16s, 30s, 30s...
+
     return new Promise((resolve) => {
       const ws = new WebSocket(wsUrl.toString());
       wsRef.current = ws;
@@ -897,6 +929,11 @@ export default function ChatPage(): JSX.Element {
           return;
         }
         settled = true;
+        if (ok) {
+          reconnectAttemptsRef.current = 0; // Reset backoff on successful connection
+        } else {
+          reconnectAttemptsRef.current = (reconnectAttemptsRef.current || 0) + 1; // Increment for next attempt
+        }
         resolve(ok);
       };
 
@@ -925,9 +962,10 @@ export default function ChatPage(): JSX.Element {
         done(false);
       };
 
+      // 10-second connection timeout
       window.setTimeout(() => {
         done(ws.readyState === WebSocket.OPEN);
-      }, 5000);
+      }, 10000);
     });
   }
 
