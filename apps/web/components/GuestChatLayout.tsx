@@ -21,9 +21,8 @@ export default function GuestChatLayout({ children, onMenuToggle }: GuestChatLay
     <div className="guest-chat-layout">
       <header className="guest-chat-header">
         <Link href="/" className="guest-brand-link">
-          <span className="brand-emoji">🎥</span>
+          Notempus
         </Link>
-        <h1 className="guest-chat-title">Video Chat</h1>
         <button
           className="guest-menu-toggle"
           onClick={handleMenuToggle}
@@ -88,42 +87,30 @@ export default function GuestChatLayout({ children, onMenuToggle }: GuestChatLay
           border-bottom: 1px solid rgba(157, 190, 205, 0.2);
           background: rgba(7, 22, 33, 0.7);
           backdrop-filter: blur(8px);
-          gap: 1rem;
+          gap: 1.5rem;
           z-index: 100;
         }
 
         .guest-brand-link {
           display: flex;
           align-items: center;
-          justify-content: center;
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          background: rgba(255, 140, 57, 0.1);
-          border: 1px solid rgba(255, 140, 57, 0.3);
+          justify-content: flex-start;
+          font-family: var(--font-display), sans-serif;
+          font-size: 1.3rem;
+          font-weight: 700;
+          color: #ff8c39;
+          background: none;
+          border: none;
+          padding: 0;
+          text-decoration: none;
           transition: all 200ms ease;
+          letter-spacing: -0.01em;
           flex-shrink: 0;
         }
 
         .guest-brand-link:hover {
-          background: rgba(255, 140, 57, 0.2);
-          border-color: rgba(255, 140, 57, 0.5);
-          transform: scale(1.05);
-        }
-
-        .brand-emoji {
-          font-size: 1.5rem;
-        }
-
-        .guest-chat-title {
-          margin: 0;
-          font-family: var(--font-display), sans-serif;
-          font-size: 1.3rem;
-          font-weight: 700;
-          color: #eff7fb;
-          flex: 1;
-          text-align: center;
-          letter-spacing: -0.01em;
+          opacity: 0.8;
+          transform: scale(1.02);
         }
 
         .guest-menu-toggle {
