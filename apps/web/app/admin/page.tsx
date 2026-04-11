@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 type GatewayState = "idle" | "checking" | "online" | "offline";
@@ -158,6 +159,11 @@ export default function AdminPage() {
 
   return (
     <div className="site-root">
+      <header className="site-header">
+        <Link href="/" className="brand-link">
+          Notempus
+        </Link>
+      </header>
       <main className="admin-wrap">
         <section className="hero-block admin-hero">
           <p className="hero-kicker">Owner console</p>
