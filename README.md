@@ -2,9 +2,34 @@
 
 Concise instructions for starting the project locally and in a full-stack environment.
 
-## ⚡ Quick Start (Copy & Paste)
+## ⚡ Quick Start (One Command)
 
-Run this to start everything:
+### Linux / macOS / WSL / Git Bash
+```bash
+bash dev.sh
+```
+
+### Windows PowerShell
+```powershell
+./dev.ps1
+```
+
+**What this does:**
+- ✓ Sets up Node.js and pnpm paths automatically
+- ✓ Installs dependencies (only if needed)
+- ✓ Starts all dev servers in parallel
+
+**Services available after startup:**
+- 🌐 Web UI: http://localhost:3000
+- 💬 Guest chat: http://localhost:3000/chat?guest=true
+- 🔌 API Gateway: http://127.0.0.1:4000
+- 🎯 Other services: http://127.0.0.1:4001–4006
+
+---
+
+## 📋 Manual Setup (if scripts don't work)
+
+Run this one-liner in your terminal:
 
 ```bash
 export PATH="$PWD/.tools/node/bin:$PATH" && \
@@ -12,12 +37,6 @@ export COREPACK_HOME="$PWD/.tools/corepack" && \
 .tools/node/bin/pnpm install && \
 .tools/node/bin/pnpm dev
 ```
-
-Then open:
-- Web: http://localhost:3000
-- Guest chat: http://localhost:3000/chat?guest=true
-- API Gateway: http://127.0.0.1:4000
-- Other services: http://127.0.0.1:4001–4006
 
 **Prerequisites**
 - Node.js 22+ (project uses a workspace-local Node runtime in `.tools/node` if present)

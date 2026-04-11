@@ -5,6 +5,8 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
+    "dev:start": "bash dev.sh",
+    "dev:start:ps": "powershell -ExecutionPolicy Bypass -File ./dev.ps1",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:e2e:web": "pnpm --filter web test:e2e",
