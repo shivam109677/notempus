@@ -14,36 +14,40 @@
 
 ### How to Run
 
-1. **Start dev servers on your laptop:**
+**On your laptop (the server):**
 ```bash
 bash dev.sh    # Starts web + all backend services
 ```
 
-2. **Share with friends:**
-   - **Same WiFi**: Give them `http://[your-laptop-ip]:3000`
-   - **Outside your network**: Use ngrok
-     ```bash
-     npx ngrok http 3000
-     # Share the ngrok URL with friends
-     ```
+**Share with friends using ngrok:**
+```bash
+# In a new terminal, run:
+npx ngrok http 3000
 
-3. **Collect feedback**
-   - What do they like?
-   - What's broken?
-   - Would they use this?
-   - Any confusing parts?
+# Copy the generated URL and share with friends
+# Example: https://abc123.ngrok.io
+```
+
+Friends can access from anywhere—different WiFi, different city, doesn't matter. Just share the ngrok URL.
 
 ### What to Test
 - ✅ Guest chat works
+- ✅ Video/audio works
 - ✅ No crashes
-- ✅ UI/UX is good
-- ✅ Would friends actually use this?
+- ✅ Is it fun to use?
+- ✅ Would they actually use this?
 
-### Notes
+### Collect Feedback
+- What do they like?
+- What's broken?
+- What feels slow?
+- Anything confusing?
+
+### Important Notes
 - App only runs while your laptop is on
-- Data resets if you restart
-- This is BETA testing only
-- Friends understand it's early stage
+- Data resets if you restart services
+- This is BETA testing—friends understand it's early
+- ngrok URL expires after 2 hours of inactivity (restart if needed)
 
 ---
 
